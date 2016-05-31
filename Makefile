@@ -16,7 +16,7 @@ test:
 
 # TODO: add python 3.3 and 3.4 testing
 .PHONY: testall
-testall: test26 test27 test33 test34
+testall: test26 test27 test33 test34 test35
 .PHONY: test26
 test26:
 	@echo "# Test with python 2.6"
@@ -37,6 +37,11 @@ test34:
 	@echo "# Test with python 3.4"
 	@python3.4 --version
 	make test PYTHON=python3.4
+.PHONY: test35
+test35:
+	@echo "# Test with python 3.5"
+	@python3.5 --version
+	make test PYTHON=python3.5
 
 
 # Ensure CHANGES.md and package.json have the same version.
