@@ -99,6 +99,16 @@ def alias(*aliases):
         return f
     return decorate
 
+def group(*groups):
+    """Decorator to define non-default command groups."""
+
+    def decorate(f):
+        if not hasattr(f, "groups"):
+            f.groups = []
+        f.groups += groups
+        return f
+
+    return decorate
 
 class RawCmdln(cmd.Cmd):
     """An improved (on cmd.Cmd) framework for building multi-subcommand
@@ -228,12 +238,14 @@ class RawCmdln(cmd.Cmd):
                     LOOP_IF_EMPTY   run "argv", if given, and exit;
                                     otherwise, start loop
         """
+
         if argv is None:
             import sys
             argv = sys.argv
         else:
             argv = argv[:] # don't modify caller's list
 
+        self.parse_groups()
         self.optparser = self.get_optparser()
         if self.optparser: # i.e. optparser=None means don't process for opts
             try:
@@ -488,12 +500,17 @@ class RawCmdln(cmd.Cmd):
         self.stderr.flush()
         return 1
 
+    def group_wrapper(self, argv):
+        """display alternative help message"""
+        self.do_help(argv)
+
     def do_help(self, argv):
         """${cmd_name}: give detailed help on a specific sub-command
 
         Usage:
             ${name} help [COMMAND]
         """
+        grp = None
         if len(argv) > 1: # asking for help on a particular command
             doc = None
             cmdname = self._get_canonical_cmd_name(argv[1]) or argv[1]
@@ -510,6 +527,8 @@ class RawCmdln(cmd.Cmd):
                     if doc is None:
                         return self.helpdefault(argv[1], handler != None)
         else: # bare "help" command
+            if argv[0].startswith("help-"):
+                grp = argv[0][5:]
             doc = self.__class__.__doc__  # try class docstring
             if doc is None:
                 # Try to provide some reasonable useful default help.
@@ -527,11 +546,20 @@ class RawCmdln(cmd.Cmd):
 
         if doc: # *do* have help content, massage and print that
             doc = self._help_reindent(doc)
-            doc = self._help_preprocess(doc, cmdname)
+            doc = self._help_preprocess(doc, cmdname, grp)
             doc = doc.rstrip() + '\n' # trim down trailing space
             self.stdout.write(self._str(doc))
             self.stdout.flush()
     do_help.aliases = ["?"]
+
+    def parse_groups(self):
+        for cmd in self.get_names():
+            if not cmd.startswith("do_"):
+                continue
+            cmd = getattr(self, cmd)
+            if hasattr(cmd, "groups"):
+                for g in cmd.groups:
+                    setattr(self.__class__, "do_help-%s" % g, staticmethod(self.group_wrapper))
 
     def _help_reindent(self, help, indent=None):
         """Hook to re-indent help strings before writing to stdout.
@@ -561,7 +589,7 @@ class RawCmdln(cmd.Cmd):
         lines = [(indent+line).rstrip() for line in lines]
         return '\n'.join(lines)
 
-    def _help_preprocess(self, help, cmdname):
+    def _help_preprocess(self, help, cmdname, grp = None):
         """Hook to preprocess a help string before writing to stdout.
 
             "help" is the help string to process.
@@ -599,7 +627,6 @@ class RawCmdln(cmd.Cmd):
         preprocessors = {
             "${name}":            self._help_preprocess_name,
             "${option_list}":     self._help_preprocess_option_list,
-            "${command_list}":    self._help_preprocess_command_list,
             "${help_list}":       self._help_preprocess_help_list,
             "${cmd_name}":        self._help_preprocess_cmd_name,
             "${cmd_usage}":       self._help_preprocess_cmd_usage,
@@ -609,6 +636,8 @@ class RawCmdln(cmd.Cmd):
         for marker, preprocessor in preprocessors.items():
             if marker in help:
                 help = preprocessor(help, cmdname)
+        if "${command_list}" in help:
+            help = self._help_preprocess_command_list(help, grp)
         return help
 
     def _help_preprocess_name(self, help, cmdname=None):
@@ -633,12 +662,13 @@ class RawCmdln(cmd.Cmd):
         help = help.replace(indent+marker+suffix, block, 1)
         return help
 
-    def _get_cmds_data(self):
+    def _get_cmds_data(self, grp = None):
         # Find any aliases for commands.
         token2canonical = self._get_canonical_map()
         aliases = {}
         for token, cmdname in token2canonical.items():
-            if token == cmdname: continue
+            if token == cmdname:
+                continue
             aliases.setdefault(cmdname, []).append(token)
 
         # Get the list of (non-hidden) commands and their
@@ -646,7 +676,9 @@ class RawCmdln(cmd.Cmd):
         cmdnames = set()
         for attr in self.get_names():
             if attr.startswith("do_"):
-                cmdnames.add(attr[3:])
+                f = getattr(self, attr)
+                if not getattr(f, "groups", None) or grp in f.groups:
+                    cmdnames.add(attr[3:])
         linedata = []
         for cmdname in sorted(cmdnames):
             if aliases.get(cmdname):
@@ -677,12 +709,12 @@ class RawCmdln(cmd.Cmd):
 
         return linedata
 
-    def _help_preprocess_command_list(self, help, cmdname=None):
+    def _help_preprocess_command_list(self, help, grp=None):
         marker = "${command_list}"
         indent, indent_width = _get_indent(marker, help)
         suffix = _get_trailing_whitespace(marker, help)
 
-        linedata = self._get_cmds_data()
+        linedata = self._get_cmds_data(grp)
         if linedata:
             subindent = indent + ' '*4
             lines = _format_linedata(linedata, subindent, indent_width+4)
