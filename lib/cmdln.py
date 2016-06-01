@@ -502,7 +502,7 @@ class RawCmdln(cmd.Cmd):
         Usage:
             ${name} help [COMMAND]
         """
-        grp = None
+        grp = ""
         if len(argv) > 1: # asking for help on a particular command
             doc = None
             cmdname = self._get_canonical_cmd_name(argv[1]) or argv[1]
@@ -581,7 +581,7 @@ class RawCmdln(cmd.Cmd):
         lines = [(indent+line).rstrip() for line in lines]
         return '\n'.join(lines)
 
-    def _help_preprocess(self, help, cmdname, grp = None):
+    def _help_preprocess(self, help, cmdname, grp = ""):
         """Hook to preprocess a help string before writing to stdout.
 
             "help" is the help string to process.
@@ -654,7 +654,7 @@ class RawCmdln(cmd.Cmd):
         help = help.replace(indent+marker+suffix, block, 1)
         return help
 
-    def _get_cmds_data(self, grp = None):
+    def _get_cmds_data(self, grp = ""):
         # Find any aliases for commands.
         token2canonical = self._get_canonical_map()
         aliases = {}
@@ -669,7 +669,7 @@ class RawCmdln(cmd.Cmd):
         for attr in self.get_names():
             if attr.startswith("do_"):
                 f = getattr(self, attr)
-                if not getattr(f, "groups", None) or grp in f.groups:
+                if grp == None or not hasattr(f, "groups") or grp in f.groups:
                     cmdnames.add(attr[3:])
         linedata = []
         for cmdname in sorted(cmdnames):
@@ -701,7 +701,7 @@ class RawCmdln(cmd.Cmd):
 
         return linedata
 
-    def _help_preprocess_command_list(self, help, grp=None):
+    def _help_preprocess_command_list(self, help, grp=""):
         marker = "${command_list}"
         indent, indent_width = _get_indent(marker, help)
         suffix = _get_trailing_whitespace(marker, help)
@@ -1221,7 +1221,7 @@ def man_sections_from_cmdln(inst, summary=None, description=None, author=None):
     @raises {ValueError} if man page content cannot be generated for the
         given class.
     """
-    if not inst.__class__.name:
+    if not hasattr(inst, "name"):
         raise ValueError("cannot generate man page content: `name` is not "
             "set on class %r" % inst.__class__)
     data = {
@@ -1253,23 +1253,27 @@ def man_sections_from_cmdln(inst, summary=None, description=None, author=None):
     if not hasattr(inst, "optparser") is None:
         #HACK: In case `.main()` hasn't been run.
         inst.optparser = inst.get_optparser()
-    lines = inst._help_preprocess("${option_list}", None).splitlines(False)
+    lines = inst._help_preprocess("${option_list}", None, None).splitlines(False)
+    prev_line = []
     for line in lines[1:]:
         line = line.lstrip()
         if not line:
             continue
         section += ".TP\n"
-        opts, desc = line.split('  ', 1)
-        section += ".B %s\n" % opts
-        section += "%s\n" % _dedent(desc.lstrip(), skip_first_line=True)
+        prev_line += line.split('  ', 1)
+        if len(prev_line) < 2:
+            continue
+        section += ".B %s\n" % prev_line[0]
+        section += "%s\n" % _dedent(prev_line[1].lstrip(), skip_first_line=True)
+        prev_line = []
     sections.append(section)
 
     section = ".SH COMMANDS\n"
-    cmds = inst._get_cmds_data()
+    cmds = inst._get_cmds_data(None)
     for cmdstr, doc in cmds:
         cmdname = cmdstr.split(' ')[0]  # e.g. "commit (ci)" -> "commit"
         doc = inst._help_reindent(doc, indent="")
-        doc = inst._help_preprocess(doc, cmdname)
+        doc = inst._help_preprocess(doc, cmdname, None)
         doc = doc.rstrip() + "\n"  # trim down trailing space
         section += '.PP\n.SS %s\n%s\n' % (cmdstr, doc)
     sections.append(section)
