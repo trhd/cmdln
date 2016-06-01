@@ -718,7 +718,6 @@ class RawCmdln(cmd.Cmd):
     def _gen_names_and_attrs(self):
         # Inheritance says we have to look in class and
         # base classes; order is not important.
-        names = []
         classes = [self.__class__]
         while classes:
             aclass = classes.pop(0)
@@ -1536,7 +1535,6 @@ def _dedentlines(lines, tabsize=8, skip_first_line=False):
     if DEBUG:
         print("dedent: dedent(..., tabsize=%d, skip_first_line=%r)"\
               % (tabsize, skip_first_line))
-    indents = []
     margin = None
     for i, line in enumerate(lines):
         if i == 0 and skip_first_line: continue
